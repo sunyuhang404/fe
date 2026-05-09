@@ -39,6 +39,8 @@ function effect(fn, options = {}) {
   return effectFn;
 }
 
+const ITERATE_KEY = Symbol();
+
 const bucket = new WeakMap();
 
 // 收集依赖的（只要触发了get，就执行）
@@ -58,11 +60,14 @@ function track(target, key) {
   activeEffect.deps.push(deps);
 }
 
-function trigger(target, key) {
+function trigger(target, key, type = "SET") {
   const depsMap = bucket.get(target);
 
   if (!depsMap) return;
   const effects = depsMap.get(key);
+
+  // 获取与 ITERATE_KEY 相关的副作用函数
+  const iterateEffects = depsMap.get(ITERATE_KEY);
 
   const effectsToRun = new Set();
 
@@ -73,6 +78,18 @@ function trigger(target, key) {
         effectsToRun.add(effectFn);
       }
     });
+
+  // 只有类型是添加新属性的时候，才触发这里
+  if (type === "ADD" || type === "DELETE") {
+    // 把与 ITERATE_KEY 相关联的副作用函数添加到 effectsToRun中
+    iterateEffects &&
+      iterateEffects.forEach((effectFn) => {
+        if (effectFn !== activeEffect) {
+          effectsToRun.add(effectFn);
+        }
+      });
+  }
+
   effectsToRun.forEach((effectFn) => {
     // 如果一个副作用函数存在调度器，就调用这个调度器，并且把副作用函数传过去
     if (effectFn.options.scheduler) {
@@ -232,6 +249,9 @@ const obj = new Proxy(data, {
     target[key] = newVal;
     trigger(target, key);
     return true;
+  },
+  deleteProperty(target, key) {
+    return Reflect.deleteProperty(target, key);
   },
 });
 
